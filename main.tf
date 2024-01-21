@@ -77,62 +77,138 @@ resource "null_resource" "docker_packaging" {
 	  ]
 }
 
+#Setting Up the EC2 Instance
 
+#Creating an Policy to attach to the role
+resource "aws_iam_policy" "ec2-access-ecr-policy" {
+  name = "ecr-access-policy"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ecr:*",
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      },
+    ]
+  })
+}
 
-# resource "docker_image" "GETH_stable" {
-#     name = "ethereum/client-go:stable"
-# }
+resource "aws_iam_role" "role" {
+  name               = "ec2-access-ecr-role"
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": ["ec2.amazonaws.com"]
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+}
 
+resource "aws_iam_policy_attachment" "attach" {
+  name       = "ec3-ecr-attach"
+  roles      = [aws_iam_role.role.name] 
+  # policy_arn = "${aws_iam_policy.policy.arn}"
+  policy_arn = aws_iam_policy.ec2-access-ecr-policy.arn
+}
 
+resource "aws_iam_instance_profile" "ec2-profile" {
+  name = "ec2_to_ecr_profile"
+  role = aws_iam_role.role.name
+}
 
-
-
-
-
-
-
-
-
-
-# VPC 
-# resource "aws_instance" "foodmenu_app" {
-#   ami           = "ami-069d73f3235b535bd"
+# resource "aws_instance" "example_instance" {
+#   ami           = "ami-0e9107ed11be76fde"
 #   instance_type = "t2.micro"
+#   iam_instance_profile = aws_iam_instance_profile.ec2-profile.name
 
 #   tags = {
-#     Name = "HelloWorld"
+#     Name = "gethinstnace"
+#   }
+
+# lifecycle {
+#     # Reference the security group as a whole or individual attributes like `name`
+#     replace_triggered_by = [aws_security_group.example]
 #   }
 # }
 
+resource "aws_vpc" "geth_vpc" {
+  cidr_block =  "10.0.0.0/16"
+  tags = {
+    name = "production_vpc"
+  }
+}
 
-# resource "aws_vpc" "foodmenu_vpc" {
-#   cidr_block =  "10.0.0.0/16"
-#   tags = {
-#     name = "production_vpc"
-#   }
-# }
+resource "aws_subnet" "geth_subnet1" {
+  vpc_id = aws_vpc.geth_vpc.id
+  cidr_block = "10.0.1.0/24"
+  availability_zone = "us-east-1a"
+  tags = {
+    name = "geth_subnet1"
+  }
+}
 
-# resource "aws_subnet" "foodmenu_subnet1" {
-#   vpc_id = "aws_vpc.foodmenu_vpc"
-#   cidr_block = "10.0.1.0/24"
-#   availability_zone = "us-east-2a"
-#   tags = {
-#     name = "foodmenu_subnet1"
-#   }
-# }
+resource "aws_security_group" "geth_connection" {
+  name        = "geth_sg"
+  description = "Allow TLS inbound traffic and all outbound traffic"
+  vpc_id      = aws_vpc.geth_vpc.id
 
+  ingress {
+    from_port   = 30303
+    to_port     = 30303
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
-# command = <<EOF
-#         # loging to aws ecr and then also login to docker with an access token
-# 	    aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com
-        
-#         # doubt I need this gradle thing
-# 	    # gradle build -p noiselesstech
-        
-#         #pull the stable build from dockerhub
-#         docker pull ethereum/client-go:stable
-	    
-# 	    # docker push "${aws_ecr_repository.ecr_repo.repository_url}:latest"
-#         docker push ethereum/client-go:stable
-# 	    EOF
-# 	  }
+  ingress {
+    from_port   = 9000
+    to_port     = 9000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 30303
+    to_port     = 30303
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  egress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "geth_sg"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
