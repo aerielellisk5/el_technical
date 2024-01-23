@@ -48,36 +48,24 @@ resource "null_resource" "docker_packaging" {
 	  provisioner "local-exec" {
 	    command = <<EOF
         #!/bin/bash
-        
-        # specifying that this is a bash script
-	    aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com
+      
+	      aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com
         docker pull ethereum/client-go:stable
         imageID=`docker images -q ethereum/client-go:stable`
-
-
-        #docker tag e9ae3c220b23 aws_account_id.dkr.ecr.us-west-2.amazonaws.com/my-repository:tag
         docker tag $imageID ${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com/${aws_ecr_repository.ecr_repo.name}:stable
-        # docker push aws_account_id.dkr.ecr.us-west-2.amazonaws.com/my-repository:tag
+      
         docker push ${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com/${aws_ecr_repository.ecr_repo.name}:stable
-
-
-        # docker push ${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com/${aws_ecr_repository.ecr_repo.repository_url}
-        # registry/repository
 	    EOF
 	  }
 	
-
 	  triggers = {
 	    "run_at" = timestamp()
 	  }
 	
-
 	  depends_on = [
 	    aws_ecr_repository.ecr_repo,
 	  ]
 }
-
-#Setting Up the EC2 Instance
 
 #Creating an Policy to attach to the role
 resource "aws_iam_policy" "ec2-access-ecr-policy" {
@@ -117,7 +105,6 @@ EOF
 resource "aws_iam_policy_attachment" "attach" {
   name       = "ec3-ecr-attach"
   roles      = [aws_iam_role.role.name] 
-  # policy_arn = "${aws_iam_policy.policy.arn}"
   policy_arn = aws_iam_policy.ec2-access-ecr-policy.arn
 }
 
@@ -126,20 +113,35 @@ resource "aws_iam_instance_profile" "ec2-profile" {
   role = aws_iam_role.role.name
 }
 
-# resource "aws_instance" "example_instance" {
-#   ami           = "ami-0e9107ed11be76fde"
-#   instance_type = "t2.micro"
-#   iam_instance_profile = aws_iam_instance_profile.ec2-profile.name
+resource "aws_instance" "gethinstance" {
+  ami           = "ami-095889fa7a7b9da4e"
+  instance_type = "t4g.nano"
+  iam_instance_profile = aws_iam_instance_profile.ec2-profile.name
+  tags = {
+    Name = "gethinstnace"
+  }
+  key_name = "terraform24"
+  user_data =  <<-EOF
+              #!/bin/bash
 
-#   tags = {
-#     Name = "gethinstnace"
-#   }
+              sudo yum update -y
+              sudo amazon-linux-extras install docker -y
+              sudo service docker start
+              sudo systemctl enable docker
+              sudo usermod -a -G docker ec2-user
+              touch success.txt
 
-# lifecycle {
-#     # Reference the security group as a whole or individual attributes like `name`
-#     replace_triggered_by = [aws_security_group.example]
-#   }
-# }
+              aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com
+
+              echo "logged into aws and docker" >> success.txt
+
+              docker pull ${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com/${aws_ecr_repository.ecr_repo.name}:stable
+              echo "pulled the docker image from dockerhub" >> success.txt
+
+              docker run -d -p 30303:30303 -v my_volume:/root/.ethereum ${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com/${aws_ecr_repository.ecr_repo.name}:stable
+              
+              EOF
+}
 
 resource "aws_vpc" "geth_vpc" {
   cidr_block =  "10.0.0.0/16"
@@ -170,10 +172,17 @@ resource "aws_security_group" "geth_connection" {
   }
 
   ingress {
-    from_port   = 9000
-    to_port     = 9000
-    protocol    = "tcp"
+    from_port   = 30303
+    to_port     = 30303
+    protocol    = "udp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 8545  
+    to_port     = 8545
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]  
   }
 
   egress {
@@ -182,14 +191,8 @@ resource "aws_security_group" "geth_connection" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
-  egress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
+ 
+  # http
   egress {
     from_port   = 80
     to_port     = 80
@@ -197,6 +200,7 @@ resource "aws_security_group" "geth_connection" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   
+  # ssh
   egress {
     from_port   = 22
     to_port     = 22
