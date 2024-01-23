@@ -14,9 +14,7 @@ terraform {
 
 provider "aws" {
   region = "us-east-1"
-#   shared_config_files      = ["path_to_config"]
   shared_credentials_files = ["~/.aws/credentials"]
-#   gives access to my credentials
 }
 
 provider "docker" {
@@ -34,10 +32,10 @@ resource "aws_ecr_repository" "ecr_repo" {
     scan_on_push = true
     # checks for software vulnerabilities in container
   }
-  lifecycle {
-    prevent_destroy = false
-    # this resource can be delete on destroy
-  }
+  # lifecycle {
+  #   prevent_destroy = false
+  #   # this resource can be delete on destroy
+  # }
 }
 
 data "aws_caller_identity" "current" {}
@@ -139,7 +137,7 @@ resource "aws_instance" "gethinstance" {
               echo "pulled the docker image from dockerhub" >> success.txt
 
               docker run -d -p 30303:30303 -v my_volume:/root/.ethereum ${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com/${aws_ecr_repository.ecr_repo.name}:stable
-              
+
               EOF
 }
 
@@ -159,9 +157,9 @@ resource "aws_subnet" "geth_subnet1" {
   }
 }
 
-resource "aws_security_group" "geth_connection" {
-  name        = "geth_sg"
-  description = "Allow TLS inbound traffic and all outbound traffic"
+resource "aws_security_group" "geth_sg" {
+  name        = "geth_security_group"
+  description = "SG for GETH"
   vpc_id      = aws_vpc.geth_vpc.id
 
   ingress {
@@ -191,15 +189,7 @@ resource "aws_security_group" "geth_connection" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
- 
-  # http
-  egress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  
+   
   # ssh
   egress {
     from_port   = 22
